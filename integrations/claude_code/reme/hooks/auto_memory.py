@@ -384,8 +384,25 @@ def handle_event(payload: dict, *, capture_only: bool = False) -> dict:
     return {}
 
 
+def _force_utf8_streams() -> None:
+    """Pin stdin/stdout/stderr to UTF-8 so recalled Chinese context survives the pipe.
+
+    Hosts spawn this hook without setting PYTHONIOENCODING, so Windows falls back
+    to the ANSI code page (GBK here). Any character outside that code page raises
+    UnicodeEncodeError mid-write, truncating the JSON payload the host expects.
+    """
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main() -> None:
     """Fail open with valid JSON and content-free diagnostics."""
+    _force_utf8_streams()
     try:
         result = handle_event(json.load(sys.stdin), capture_only="--capture-only" in sys.argv[1:])
     except Exception as exc:  # Memory failures must not block coding conversations.
